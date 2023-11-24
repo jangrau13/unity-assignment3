@@ -1,0 +1,84 @@
+import catboost
+from catboost import CatBoostClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+import pickle
+import os
+import pandas as pd
+from sklearn.preprocessing import MaxAbsScaler
+
+
+def setup_with_features(using_scaled_features=False, feature_set=['participant_id']):
+    recording_location = './'
+
+    all_features_csv = os.path.join(
+        recording_location, './Data/FeatureFiles/feature_list_all.csv')
+    df = pd.read_csv(all_features_csv)
+    features = df[feature_set]
+    labels = df['label']
+    scaler = MaxAbsScaler()
+    scaler.fit(features)
+    scaled = scaler.transform(features)
+    scaled_features = pd.DataFrame(scaled, columns=features.columns)
+    if using_scaled_features:
+        feature_train, feature_test, label_train, label_test = train_test_split(
+            scaled_features, labels, train_size=0.8, random_state=0, stratify=labels)
+    else:
+        feature_train, feature_test, label_train, label_test = train_test_split(
+            features, labels, train_size=0.8, random_state=0, stratify=labels)
+    return feature_train, feature_test, label_train, label_test
+
+
+def test_parameters(results, using_scaling, f_set, feature_train, feature_test, label_train, label_test, iterations=1000, learning_rate=0.1, depth=6, l2_leaf_reg=3):
+    key = str(using_scaling) + "_" + str(f_set) + "_" + str(iterations) + \
+        "_" + str(learning_rate) + "_" + str(depth) + "_" + str(l2_leaf_reg)
+    model = CatBoostClassifier(iterations=iterations,  # Number of boosting iterations
+                               learning_rate=learning_rate,  # Learning rate
+                               depth=depth,  # Depth of trees
+                               l2_leaf_reg=l2_leaf_reg,  # L2 regularization strength
+                               loss_function='MultiClass')  # List of categorical features' indices
+    model.fit(feature_train, label_train, verbose=0)
+    y_pred = model.predict(feature_test)
+    accuracy_cat = accuracy_score(label_test, y_pred)
+    results[key] = accuracy_cat
+
+
+with_or_without_scaled_features = [True, False]
+feature_sets = [["xDir", "yDir", "fixDensPerBB"],
+                ["meanFix", "maxFix", "varFix"],
+                ["meanFix", "maxFix", "varFix", "xDir", "yDir"],
+                ["meanFix", "maxFix", "varFix", "xDir", "yDir", "fixDensPerBB"],
+                ['blinkMean', 'blinkMin', 'blinkMax', 'blinkRate', 'xDir',
+                    'yDir', 'fixDensPerBB', 'duration', 'participant_id'],
+                ['varFix', 'stdFix', 'meanDis',  'varDis', 'stdDisp', 'freqDisPerSec',
+                    'number_of_blinks', 'blinkMean', 'blinkRate', 'xDir', 'yDir', 'fixDensPerBB'],
+                ['minFix', 'maxFix', 'minDis', 'maxDis', 'blinkMin',
+                    'blinkMax', 'xDir', 'yDir', 'fixDensPerBB'],
+                ['minFix', 'maxFix', 'minDis', 'maxDis', 'blinkMin',
+                    'blinkMax', 'xDir', 'yDir', 'fixDensPerBB', 'participant_id'],
+                ['minFix', 'maxFix', 'varFix', 'stdFix', 'meanDis', 'minDis', 'maxDis', 'varDis', 'stdDisp', 'freqDisPerSec', 'number_of_blinks', 'blinkMean', 'blinkMin', 'blinkMax', 'blinkRate', 'xDir', 'yDir', 'fixDensPerBB', 'duration', 'participant_id']]
+results = {}
+iteration_list = [10, 100, 1000]
+learning_rate_list = [0.01, 0.1, 0.5]
+depth_list = [1, 2, 6]
+l2_leaf_reg_list = [1, 3]
+
+for boo in with_or_without_scaled_features:
+    for f_set in feature_sets:
+        for i in iteration_list:
+            for l in learning_rate_list:
+                for d in depth_list:
+                    for l2 in l2_leaf_reg_list:
+                        feature_train, feature_test, label_train, label_test = setup_with_features(
+                            boo, f_set)
+                        test_parameters(results, boo, f_set, feature_train, feature_test, label_train,
+                                        label_test, iterations=i, learning_rate=l, depth=d, l2_leaf_reg=l2)
+        print("Done with feature set: " + str(f_set))
+    print("Done with scaling: " + str(boo))
+
+print(results)
+
+# print the three best keys in results
+sorted_results = sorted(results.items(), key=lambda x: x[1], reverse=True)
+for i in range(3):
+    print(sorted_results[i])
